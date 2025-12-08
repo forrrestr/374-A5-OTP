@@ -39,7 +39,9 @@ int main(int argc, char *argv[]){
   if (argc < 2) { 
     fprintf(stderr,"USAGE: %s port\n", argv[0]); 
     exit(1);
-  } 
+  }
+  
+  pid_t childpid;
   
   // Create the socket that will listen for connections
   int listenSocket = socket(AF_INET, SOCK_STREAM, 0);
@@ -73,27 +75,36 @@ int main(int argc, char *argv[]){
     printf("SERVER: Connected to client running at host %d port %d\n", 
                           ntohs(clientAddress.sin_addr.s_addr),
                           ntohs(clientAddress.sin_port));
+    
+     if(childpid = fork() == 0){
+      // Get the message from the client and display it
+      memset(buffer, '\0', 256);
+      // Read the client's message from the socket
+      charsRead = recv(connectionSocket, buffer, 255, 0); 
+      if (charsRead < 0){
+        error("ERROR reading from socket");
+      }
 
-    // Get the message from the client and display it
-    memset(buffer, '\0', 256);
-    // Read the client's message from the socket
-    charsRead = recv(connectionSocket, buffer, 255, 0); 
-    if (charsRead < 0){
-      error("ERROR reading from socket");
-    }
-    printf("SERVER: I received this from the client: \"%s, %d\"\n", buffer, charsRead);
+        if (buffer[0] != 'd') {
+          fprintf(stderr, "Not from enc client");
+          exit(1);
+      }
 
-    //encript the message
-    char* encripted_message = encript_buffer(buffer, charsRead);
-    int message_len = strlen(encripted_message);
-    // Send a Success message back to the client
-    charsRead = send(connectionSocket, 
-                    encripted_message, charsRead, 0); 
-    if (charsRead < 0){
-      error("ERROR writing to socket");
-    }
-    // Close the connection socket for this client
-    close(connectionSocket); 
+      char *actual_data = buffer + 1; 
+      charsRead--;
+
+      //encript the message
+      char* encripted_message = encript_buffer(actual_data, charsRead);
+      int message_len = strlen(encripted_message);
+      // Send a Success message back to the client
+      charsRead = send(connectionSocket, 
+                      encripted_message, charsRead, 0); 
+      if (charsRead < 0){
+        error("ERROR writing to socket");
+      }
+      // Close the connection socket for this client
+      close(connectionSocket);
+    } 
   }
   // Close the listening socket
   close(listenSocket); 
