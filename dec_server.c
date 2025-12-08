@@ -6,6 +6,8 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
+char* encript_buffer();
+
 // Error function used for reporting issues
 void error(const char *msg) {
   perror(msg);
@@ -79,11 +81,14 @@ int main(int argc, char *argv[]){
     if (charsRead < 0){
       error("ERROR reading from socket");
     }
-    printf("SERVER: I received this from the client: \"%s\"\n", buffer);
+    printf("SERVER: I received this from the client: \"%s, %d\"\n", buffer, charsRead);
 
+    //encript the message
+    char* encripted_message = encript_buffer(buffer, charsRead);
+    int message_len = strlen(encripted_message);
     // Send a Success message back to the client
     charsRead = send(connectionSocket, 
-                    "I am the server, and I got your message", 39, 0); 
+                    encripted_message, charsRead, 0); 
     if (charsRead < 0){
       error("ERROR writing to socket");
     }
@@ -93,4 +98,52 @@ int main(int argc, char *argv[]){
   // Close the listening socket
   close(listenSocket); 
   return 0;
+}
+
+char* encript_buffer(char* buffer, int buffer_len){
+
+   fflush(stdout);
+
+  char possible_characters[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ ";
+  int* message_indexes = calloc(buffer_len, sizeof(int));
+  int i = 0;
+  int j = 0;
+  while (buffer[i] != '\n' && i < buffer_len){
+    for(j = 0; j < 27; j++){
+      if (buffer[i] == possible_characters[j]){
+        message_indexes[i] = j;
+      }
+    }
+    i++;
+  }
+  
+  int message_len = i;
+
+  fflush(stdout);
+
+  int* keygen_index = calloc(buffer_len, sizeof(int));
+  int key_start = message_len + 1;
+  i++;
+  for(int k = 0; k <= message_len * 2; k++){
+    for (j = 0; j < 27; j++){
+      if (buffer[i] == possible_characters[j]){
+        keygen_index[k] = j;
+      }
+    }
+  }
+
+  char* encripted_message = calloc(buffer_len, sizeof(char));
+  for(int h = 0; h < message_len; h++){
+    int encript_index = message_indexes[h] - keygen_index[h];
+    if (encript_index < 0 ){
+      encript_index = encript_index + 27;
+    }
+    encripted_message[h] = possible_characters[encript_index];
+  }
+  
+  free(message_indexes);
+  free(keygen_index);
+  encripted_message[message_len] = '\n';
+
+  return encripted_message;
 }
