@@ -6,6 +6,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
+// initialize encription function
 char* encript_buffer();
 
 // Error function used for reporting issues
@@ -76,36 +77,64 @@ int main(int argc, char *argv[]){
                           ntohs(clientAddress.sin_addr.s_addr),
                           ntohs(clientAddress.sin_port));
     
-    if(childpid = fork() == 0){
-      // Get the message from the client and display it
-      memset(buffer, '\0', 256);
-      // Read the client's message from the socket
-      charsRead = recv(connectionSocket, buffer, 255, 0); 
-      if (charsRead < 0){
-        error("ERROR reading from socket");
+    // fork so that many clients can connect to the server
+    if((childpid = fork()) == 0){
+      //set up varaibles to recieve the size of the file from client
+      int message_size;
+      int recv_bites = 0;
+
+      // initial send from client to get the total size before parsing out
+      int total_chars = recv(connectionSocket, &message_size, sizeof(message_size), 0);
+      message_size = message_size - 1; // to account for handshake --e
+      fflush(stdout);
+
+      // allocate space for response
+      char *response_buffer = malloc(message_size + 1);
+
+      // while we have not recieve all the data from the client
+      while (recv_bites < message_size){
+        // Read the client's message from the socket
+        memset(buffer, '\0', 256);
+        charsRead = recv(connectionSocket, buffer, 255, 0);
+        
+        // error handeling
+        if (charsRead < 0){
+          error("ERROR reading from socket");
+        }
+        // if this is the first round of data sent check for the handshake
+        if (recv_bites == 0) {
+          if (buffer[0] != 'e'){
+              fprintf(stderr, "Not from enc client\n");
+              exit(1);
+          }
+          // copy the size adjusted buffer (less handshake)
+          memcpy(response_buffer, buffer + 1, charsRead - 1);
+          recv_bites += charsRead - 1;  
+        } else {
+            // Copy entire buffer into response_buffer at current position
+            memcpy(response_buffer + recv_bites, buffer, charsRead);
+            recv_bites += charsRead;
+        }
       }
 
-      if (buffer[0] != 'e') {
-        fprintf(stderr, "Not from enc client");
-        exit(1);
-      }
-
-      char *actual_data = buffer + 1; // Pointer to start of plaintext/key
-      charsRead--;
 
       //encript the message
-      char* encripted_message = encript_buffer(actual_data, charsRead);
+      char* encripted_message = encript_buffer(response_buffer, message_size-1);
       int message_len = strlen(encripted_message);
       // Send a Success message back to the client
       charsRead = send(connectionSocket, 
-                      encripted_message, charsRead, 0); 
+                      encripted_message, message_len, 0); 
       if (charsRead < 0){
         error("ERROR writing to socket");
       }
       // Close the connection socket for this client
+      free(encripted_message);     
+      free(response_buffer); 
       close(connectionSocket);
+      exit(0);
     } 
   }
+
   // Close the listening socket
   close(listenSocket); 
   return 0;
@@ -119,7 +148,9 @@ char* encript_buffer(char* buffer, int buffer_len){
   int* message_indexes = calloc(buffer_len, sizeof(int));
   int i = 0;
   int j = 0;
+  // search through the first line which is the message we want to encript
   while (buffer[i] != '\n' && i < buffer_len){
+    // search through alphabet
     for(j = 0; j < 27; j++){
       if (buffer[i] == possible_characters[j]){
         message_indexes[i] = j;
@@ -135,14 +166,20 @@ char* encript_buffer(char* buffer, int buffer_len){
   int* keygen_index = calloc(buffer_len, sizeof(int));
   int key_start = message_len + 1;
   i++;
-  for(int k = 0; k <= message_len * 2; k++){
+  // search the length of the message through the alphabet
+  // we only need the first x characters 
+  for(int k = 0; k <= message_len; k++){
     for (j = 0; j < 27; j++){
       if (buffer[i] == possible_characters[j]){
         keygen_index[k] = j;
       }
     }
+    i++;
   }
 
+  // do the math for the encription
+  // add the key and message index together
+  // if that number is bigger than or equal to 27 then subtract
   char* encripted_message = calloc(buffer_len, sizeof(char));
   for(int h = 0; h < message_len; h++){
     int encript_index = keygen_index[h] + message_indexes[h];

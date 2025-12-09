@@ -9,8 +9,11 @@
 #include <fcntl.h>      // For O_RDONLY
 
 
+// initialize functions
 int check_key_and_text_len();
 char *read_args();
+int recv_full_message();
+int send_full_message();
 
 /**
 * Client code
@@ -59,16 +62,22 @@ int main(int argc, char *argv[]) {
     fprintf(stderr,"USAGE: %s hostname port\n", argv[0]); 
     exit(0); 
   }
+  // assign message and key to variables then check to ensure they are valid
   char *plaintext = read_args(argv[1]);
   char *keygen = read_args(argv[2]);
   check_key_and_text_len(plaintext, keygen);
+
+  // if they are valid get the length of the combined file
   int total_message_length = strlen(plaintext) + strlen(keygen);
   char *plaintext_and_key = malloc(sizeof(char) * (total_message_length + 1));
-    plaintext_and_key[0] = 'd';
+  
+  // add handshake character
+  plaintext_and_key[0] = 'd';
+
+  // make the full message to be sent
   strcpy(plaintext_and_key + 1, plaintext);
   strcat(plaintext_and_key, keygen);
   
-
   // Create a socket
   socketFD = socket(AF_INET, SOCK_STREAM, 0); 
   if (socketFD < 0){
@@ -82,26 +91,26 @@ int main(int argc, char *argv[]) {
   if (connect(socketFD, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) < 0){
     error("CLIENT: ERROR connecting");
   }
-  // Send message to server
-  // Write to the server
-  charsWritten = send(socketFD, plaintext_and_key, strlen(plaintext_and_key), 0); 
-  if (charsWritten < 0){
-    error("CLIENT: ERROR writing to socket");
-  }
-  if (charsWritten < strlen(buffer)){
-    printf("CLIENT: WARNING: Not all data written to socket!\n");
-  }
 
-  // Get return message from server
+  //send total number of bites to the server
+  int len_plaintext_and_key = strlen(plaintext_and_key);
+  send(socketFD, &len_plaintext_and_key, sizeof(len_plaintext_and_key), 0);
+  send_full_message(socketFD, plaintext_and_key, &len_plaintext_and_key);
+  
   // Clear out the buffer again for reuse
   memset(buffer, '\0', sizeof(buffer));
-  // Read data from the socket, leaving \0 at end
-  charsRead = recv(socketFD, buffer, sizeof(buffer) - 1, 0); 
-  if (charsRead < 0){
-    error("CLIENT: ERROR reading from socket");
-  }
-  printf("%s", buffer);
 
+  // set up response to be just the size of the message. the key is not included in the response
+  int expected_response_size = strlen(plaintext);
+  char *response_buffer = malloc(expected_response_size + 1);
+
+  // get message from server and add a null terminator at the end
+  recv_full_message(socketFD, response_buffer, &expected_response_size);
+  response_buffer[expected_response_size] = '\0';
+
+  // print message, free space and close down
+  printf("%s", response_buffer);
+  free(response_buffer);
   // Close the socket
   close(socketFD); 
   return 0;
@@ -131,9 +140,7 @@ int check_key_and_text_len(char plaintext[], char keygen[]){
       exit(1);
     }
   }
-  
   return 0;
-
 }
 
 char *read_args(char *file_name){
@@ -160,3 +167,45 @@ char *read_args(char *file_name){
   fclose(file);
   return string;
 }
+
+/*
+send_full_message and recv_full_message are adopted from
+ Beej's Guide to Network Programming: Using Internet Sockets
+ https://beej.us/guide/bgnet/html/#sendall
+*/
+
+int send_full_message(int s, char *buf, int *len)
+{
+    int total = 0;        // how many bytes we've sent
+    int bytesleft = *len; // how many we have left to send
+    int n;
+
+    while(total < *len) {
+        n = send(s, buf+total, bytesleft, 0);
+        if (n == -1) { break; }
+        total += n;
+        bytesleft -= n;
+    }
+
+    *len = total; // return number actually sent here
+
+    return n==-1?-1:0; // return -1 on failure, 0 on success
+} 
+
+int recv_full_message(int s, char *buf, int *len)
+{
+    int total = 0;        // how many bytes we've recv
+    int bytesleft = *len; // how many we have left to get
+    int n;
+
+    while(total < *len) {
+        n = recv(s, buf+total, bytesleft, 0);
+        if (n == -1) { break; }
+        total += n;
+        bytesleft -= n;
+    }
+
+    *len = total; // return number actually sent here
+
+    return n==-1?-1:0; // return -1 on failure, 0 on success
+} 
